@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion } = require("mongodb");
 require("dotenv").config();
@@ -16,6 +17,25 @@ const client = new MongoClient(uri, {
   serverApi: ServerApiVersion.v1,
 });
 
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ message: "Unauthorization access !!" });
+  }
+  const token = authHeader.split(" ")[1];
+
+  jwt.verify(token, process.env.USER_TOKEN, function (err, decoded) {
+    if (err) {
+      return res.status(402).send({
+        success: false,
+        message: "Forbidden access",
+      });
+    }
+    req.decoded = decoded;
+    next();
+  });
+}
+
 async function run() {
   try {
     const appointmentOptionCollection = client
@@ -25,6 +45,23 @@ async function run() {
     const bookingCollections = client
       .db("doctor-portal")
       .collection("bokkings");
+    const usersCollections = client.db("doctor-portal").collection("users");
+
+    //--.............jwt.......................--
+
+    app.get("/jwt", async (req, res) => {
+      const email = req.query.email;
+      const filter = { email: email };
+
+      const user = await usersCollections.findOne(filter);
+      if (user) {
+        const token = jwt.sign({ email }, process.env.USER_TOKEN, {
+          expiresIn: "1d",
+        });
+        return res.send({ token });
+      }
+      res.status(401).send({ token: "" });
+    });
 
     //   -----------appointmentOption------------------
 
@@ -52,27 +89,47 @@ async function run() {
 
     // -------------------booking--------------------
 
+    app.get("/bookings", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+
+      const decodedEmail = req.decoded.email;
+      if (decodedEmail !== email) {
+        res.status(403).send({
+          message: "Email doesn't exist !!",
+        });
+      }
+
+      const filter = {
+        email: email,
+      };
+      const result = await bookingCollections.find(filter).toArray();
+      res.send(result);
+    });
+
     app.post("/bookings", async (req, res) => {
+      const booking = req.body;
+      const filter = {
+        ServiceName: booking.ServiceName,
+        date: booking.date,
+        email: booking.email,
+      };
+
+      const allreadyBook = await bookingCollections.find(filter).toArray();
+      if (allreadyBook.length) {
+        const message = "You all ready book this service !!";
+        return res.send({ acknowledged: false, message });
+      }
+
+      const result = await bookingCollections.insertOne(booking);
+      res.send(result);
+    });
+
+    // --------------------users---------------------------
+
+    app.post("/users", async (req, res) => {
       const user = req.body;
-      console.log(user);
-
-      //   const filter = {
-      //     ServiceName: req.body.ServiceName,
-      //     // email: req.body.email,
-      //     // date: req.body.date,
-      //   };
-      //   console.log(filter);
-
-      //   const allreadyBook = await bookingCollections.find(filter).toArray();
-      //   //   console.log(allreadyBook);
-
-      //   if (allreadyBook.length) {
-      //     const message = "You all ready book this service !!";
-      //     return res.send({ message, acknowledged: false });
-      //   }
-
-      const booking = await bookingCollections.insertOne(req.body);
-      res.send(booking);
+      const result = await usersCollections.insertOne(user);
+      res.send(result);
     });
   } finally {
   }
