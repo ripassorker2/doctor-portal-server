@@ -46,6 +46,24 @@ async function run() {
       .db("doctor-portal")
       .collection("bokkings");
     const usersCollections = client.db("doctor-portal").collection("users");
+    const doctorCollections = client.db("doctor-portal").collection("doctors");
+
+    //.............verify Admin........................
+
+    const verifyAdmin = async (req, res, next) => {
+      const decodedEmail = req.decoded.email;
+      const query = {
+        email: decodedEmail,
+      };
+
+      const user = await usersCollections.findOne(query);
+      if (user?.role !== "Admin") {
+        return res
+          .status(403)
+          .send({ message: "You are not a admin ,so  cannot make admin !!" });
+      }
+      next();
+    };
 
     //--.............jwt.......................--
 
@@ -72,7 +90,6 @@ async function run() {
       const allreadyBook = await bookingCollections
         .find(bookingQurey)
         .toArray();
-      //   console.log(allreadyBook);
       options.forEach((option) => {
         const optionBooked = allreadyBook.filter(
           (booked) => booked.ServiceName == option.name
@@ -85,6 +102,14 @@ async function run() {
       });
 
       res.send(options);
+    });
+
+    app.get("/apointment/specialty", async (req, res) => {
+      const result = await appointmentOptionCollection
+        .find({})
+        .project({ name: 1 })
+        .toArray();
+      res.send(result);
     });
 
     // -------------------booking--------------------
@@ -138,19 +163,7 @@ async function run() {
       res.send({ isAdmin: user?.role === "Admin" });
     });
 
-    app.put("/users/admin/:id", verifyJWT, async (req, res) => {
-      const decodedEmail = req.decoded.email;
-      const query = {
-        email: decodedEmail,
-      };
-
-      const user = await usersCollections.findOne(query).toArray();
-      if (user?.role !== "Admin") {
-        return res
-          .status(403)
-          .send({ message: "You are not a admin ,so  cannot make admin !!" });
-      }
-
+    app.put("/users/admin/:id", verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: ObjectId(id) };
       const options = { upsert: true };
@@ -170,6 +183,31 @@ async function run() {
     app.post("/users", async (req, res) => {
       const user = req.body;
       const result = await usersCollections.insertOne(user);
+      res.send(result);
+    });
+
+    // ---------------doctors----------------
+
+    app.get("/dashboard/doctors", verifyJWT, verifyAdmin, async (req, res) => {
+      const result = await doctorCollections.find({}).toArray();
+      res.send(result);
+    });
+
+    app.delete(
+      "/dashboard/doctors/:id",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: ObjectId(id) };
+        const result = await doctorCollections.deleteOne(filter);
+        res.send(result);
+      }
+    );
+
+    app.post("/dashboard/doctors", verifyJWT, verifyAdmin, async (req, res) => {
+      const doctor = req.body;
+      const result = await doctorCollections.insertOne(doctor);
       res.send(result);
     });
   } finally {
